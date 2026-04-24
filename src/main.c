@@ -53,11 +53,10 @@ int go(char *args, int argLen)
         }
     }
 
-    if (BeaconDataLength(&parser) != 0)
-    {
-        BeaconPrintf(CALLBACK_ERROR, "Invalid number of arguments!");
-        return FALSE;
-    }
+    if (BeaconDataLength(&parser) != 0) {
+    BeaconPrintf(CALLBACK_OUTPUT, "[!] Note: %d trailing bytes in arg buffer (non-fatal)",
+                 BeaconDataLength(&parser));
+	}
 
     BOOL RetrieveMSV1Credentials = FALSE;
     BOOL RetrieveWDigestCredentials = FALSE;
