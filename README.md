@@ -1,73 +1,83 @@
-# GhostKatz
-Extract LSASS credentials directly from physical memory by abusing signed vulnerable drivers with physical memory read primitives via `MmMapIoSpace`, bypassing traditional user-mode detection capabilities.
+# GhostKatz-AdaptixC2
 
-This tool was developed in collaboration between [Julian Peña](https://github.com/RainbowDynamix) and [Eric Esquivel](https://github.com/EricEsquivel).
+Fork of [RainbowDynamix/GhostKatz](https://github.com/RainbowDynamix/GhostKatz) adapted for [AdaptixC2](https://github.com/Adaptix-Framework/AdaptixC2), supporting both **Beacon** and **Kharon** agents.
 
-This release of GhostKatz uses drivers that have already been publicly disclosed as vulnerable. For best results, GhostKatz is intended to operate with kernel drivers that expose read-memory primitive vulnerabilities and are not blocked during loading / publicly known. This public release does not include exploits for previously undisclosed drivers. Instead, the project is designed to be modular and extensible, allowing users to research their own drivers and integrate them by extending the read-memory primitive functions in `utils.c`. Internally, we have automated the discovery and exploitation process and maintain several signed kernel drivers with written exploits.
+Original BOF, technique, and driver abuse research belong to [@RainbowDynamix](https://github.com/RainbowDynamix). This fork only ports the operator-facing integration from Cobalt Strike's `.cna` to AdaptixC2's `.axs` format, and adds a small source patch for Kharon compatibility.
 
-If you would like to contribute, please see the [contribution documentation](https://github.com/RainbowDynamix/GhostKatz/blob/main/CONTRIBUTING.md).
+## What this fork changes
 
-## Why did we make GhostKatz?
-We wanted to start learning how to exploit kernel drivers and thought this would be a cool project. We were also inspired when we saw Outflank's KernelKatz tool and wanted to use it, but we do not have Outflank since we are students. So we made our own.
+- Replaces `ghostkatz.cna` with `ghostkatz.axs` (AdaptixC2 extension script)
+- Auto-detects agent type and uses the correct cleanup command (`rm` on Beacon, `fs rm` on Kharon)
+- Adds a small, non-fatal patch to `main.c` so the BOF runs correctly under Kharon's BOF loader
 
 ## Usage
-Run `make` to compile the BOFs.
-
-Load the `ghostkatz.cna` Aggressor Script into your Script Manager.
-
-To run GhostKatz, use the command `ghostkatz [logonpasswords/wdigest] -prv <provider id>`.
-
-You can run the help command in your Beacon console with: `help ghostkatz`.
 
 ```
-beacon> help ghostkatz
-Synopsis: ghostkatz [logonpasswords/wdigest] -prv <provider id>
-Description:
-  Dump credentials from LSASS by using signed kernel drivers to read physical memory.
-
-Examples:
-  ghostkatz logonpasswords -prv 1
-  ghostkatz wdigest
+ghostkatz logonpasswords -prv 1
+ghostkatz wdigest -prv 2
 ```
 
-## Demo
-![GhostKatz Demo](img/demo.gif)
+Arguments:
+- `mode` — `logonpasswords` (NT + SHA1 hashes from MSV1_0) or `wdigest` (plaintext, only populated when `UseLogonCredential = 1`)
+- `-prv <n>` — provider: `1` = `tpwsav.sys`, `2` = `throttlestop.sys`
 
+The extension handles driver staging, BOF execution, and cleanup as three chained tasks. Allow a few seconds between consecutive runs to let the previous cleanup task complete — firing runs back-to-back can race the next upload against the previous `fs rm`, causing `Failed to start service : 2` (ERROR_FILE_NOT_FOUND).
 
-## Tested Windows Versions
-These are simply the versions we manually stress tested. Major versions such as 1607 should not have breaking changes across minor build updates.
-- Windows Server 2012 R2
-  - Version 6.3 (OS Build: 9600)
-- Windows Server 2016 
-  - Version 1607 (OS Build: 14393.693)
-- Windows Server 2019 
-  - Version 1809 (OS Build: 17763.3650)
-- Windows 10 
-  - Version 21H2 (OS Build: 19044.6809)
-  - Version 22H2 (OS Build: 19045.6466)
-- Windows Server 2022
-  - Version 21H2 (OS Build: 20348.587)
+SYSTEM context is required. BYOVD provider drivers must not be AV-quarantined before staging — test in your lab environment first.
 
-> [!WARNING]
-> While GhostKatz has been tested thoroughly, you should use discretion if deploying in production. GhostKatz leverages vulnerable kernel drivers. It is possible errors may result in a BSOD.
+## Installation
 
-## Providers
+1. Clone this repo into your AdaptixC2 extensions directory
+2. Load `ghostkatz.axs` through the AdaptixC2 operator UI (Extender Manager)
+3. Confirm the `ghostkatz` command appears in `help`
 
-Drivers that can be exploited with GhostKatz
+Place the compiled BOF (`ghostkatz.x64.o`) in `_bin/` and the drivers in `drivers/` relative to the `.axs` file. See the Makefile inherited from upstream for rebuilding the BOF from source.
 
-| Id | Vendor             | Driver Name    | SHA256                                                           |
-|----|--------------------|----------------|------------------------------------------------------------------|
-| 1  | Toshiba            | TPwSav         | 011df46e94218cbb2f0b8da13ab3cec397246fdc63436e58b1bf597550a647f6 |
-| 2  | TechPowerUp        | ThrottleStop   | 16f83f056177c4ec24c7e99d01ca9d9d6713bd0497eeedb777a3ffefa99c97f0 |
+## The Kharon patch
 
-## Resources
-* [Outflank - Mapping Virtual to Physical Addresses Using Superfetch](https://www.outflank.nl/blog/2023/12/14/mapping-virtual-to-physical-adresses-using-superfetch/)
-* [UnknownCheats - [Information] NtQuerySystemInformation SystemSuperfetchInformation by Midi12](https://www.unknowncheats.me/forum/general-programming-and-reversing/397104-ntquerysysteminformation-systemsuperfetchinformation.html)
-* [Physical Graffiti Lsass](https://adepts.of0x.cc/physical-graffiti-lsass/)
-* [Dumping LSASS with WinDBG and PyKD](https://www.matteomalvica.com/blog/2020/01/20/mimikatz-lsass-dump-windg-pykd/)
-* Mimkatz [structures](https://github.com/gentilkiwi/mimikatz/blob/master/mimikatz/modules/sekurlsa/kuhl_m_sekurlsa_utils.h), [key offsets](https://github.com/gentilkiwi/mimikatz/blob/152b208916c27d7d1fc32d10e64879721c4d06af/mimikatz/modules/sekurlsa/crypto/kuhl_m_sekurlsa_nt6.c)
-* [Dumping MSV1 logon credentials](https://whoamianony.top/posts/sekurlsa-how-to-dump-user-login-credentials-from-msv1_0/#3-%E6%89%93%E5%8D%B0%E7%99%BB%E5%BD%95%E4%BC%9A%E8%AF%9D%E4%BF%A1%E6%81%AF)
-* [XPN Exploring Mimikatz WDigest](https://blog.xpnsec.com/exploring-mimikatz-part-1/)
+GhostKatz's BOF fails on Kharon at this check in `main.c`:
 
-## Special Thanks
-Thank you to [ch3rn0byl](https://github.com/ch3rn0byl) and [Cedric](https://x.com/c3c) for your time answering the dumb questions we had on the kernel, drivers, and Superfetch.
+```c
+if (BeaconDataLength(&parser) != 0) {
+    BeaconPrintf(CALLBACK_ERROR, "Invalid number of arguments!");
+    return FALSE;
+}
+```
+
+After extracting the expected arguments (`-prv` flag string, provider int, mode string), Kharon's BOF loader leaves residual bytes in the argument buffer — 25 to 32 bytes depending on argument length. Beacon's BOF loader leaves zero. The original check treats any residual bytes as a fatal error.
+
+This fork changes it to non-fatal:
+
+```c
+if (BeaconDataLength(&parser) != 0) {
+    BeaconPrintf(CALLBACK_OUTPUT, "[!] Note: %d trailing bytes in arg buffer (non-fatal)",
+                 BeaconDataLength(&parser));
+}
+```
+
+With that change, GhostKatz produces identical credential output under Kharon as under Beacon.
+
+I haven't traced the root cause of the byte difference down to a specific line in AdaptixC2's extender source. The residual size scales roughly with the length of the string arguments, suggesting the Kharon `cstr` packer in `AdaptixC2/AdaptixServer/extenders/agent_kharon/` handles something around the null terminator or length-prefix differently from the Beacon packer. PRs welcome from anyone willing to dig into the AdaptixC2 Go code.
+
+## Operator notes for Kharon
+
+A few differences from Beacon worth knowing if you're porting other BOFs:
+
+- `rm` is a subcommand under `fs` on Kharon (`fs rm <path>`), not a top-level command
+- `upload <local> <remote>` works as documented, but chaining upload → BOF → cleanup within a single `execute_alias`-based preHook can race if runs are fired back-to-back faster than the previous cleanup completes
+- Kharon's BOF loader leaves trailing bytes in the arg buffer after extraction; any BOF that does strict `BeaconDataLength(&parser) != 0` checks will fail under Kharon without a patch
+
+## Credits
+
+- [@RainbowDynamix](https://github.com/RainbowDynamix) — original GhostKatz BOF, driver abuse research, and technique
+- [oblivion](https://github.com/entropy-z) — for pointing me at DebugView/WinDbg + Kharon's `DbgPrint` output when I was stuck debugging
+
+## Disclaimer
+
+I'm an offensive security practitioner, not a malware developer. The fix in this fork is pragmatic — it works, but I don't claim deep understanding of AdaptixC2's extender internals. If someone with that expertise wants to submit a proper upstream fix that eliminates the trailing-byte difference at the packer level, I'd welcome it.
+
+Use only against systems you are authorized to test. The vulnerable drivers bundled here (`tpwsav.sys`, `throttlestop.sys`) are on EDR vendor block lists and will be detected in most modern environments without prior EDR evasion steps.
+
+## License
+
+Same as upstream GhostKatz.
